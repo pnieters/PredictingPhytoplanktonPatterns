@@ -1,0 +1,280 @@
+---
+title: "Data analyses for algae blooming prediction publication"
+output: html_notebook
+---
+
+## Set Chunk Options
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
+```
+
+```{r libraries, message = false, warning = false}
+
+# libraries; Note check actual dependencies
+
+library(tidyverse)
+library(stringr)
+library(broom)
+library(knitr)
+library(minpack.lm)
+library(nlstools)
+library(nlsMicrobio)
+library(OneR)
+library(lubridate)
+library(plotly)
+library(mgcv)
+library("ggpubr")
+library(scales)
+library(rhdf5)
+# library(tidymv)
+# library(CCA)
+# library(vegan)
+# library(cowplot)
+# library(glue)
+# library(gtable)
+# library(car)
+# library(MASS)
+# library(faraway)
+# library(gridExtra)
+
+```
+
+```{r set project variables, echo=FALSE}
+Project <- file.path("AlgaeBlooming")
+DataIn <- file.path("TidyData")
+DataOut <- file.path("ProcessData")
+TidyData <- file.path("CWB_wide.csv")
+FP1 <- ".."
+
+#set variables for file import & processing of Absorbance files
+DataPath <- file.path("TidyData", fsep = .Platform$file.sep)
+FileID <- "AlgaeBloom"
+PlotPath <- file.path("Plots", fsep = .Platform$file.sep)
+
+FileEncode <- "UTF-8" 
+Delimiter <- ","
+
+theme_set(
+  theme_bw() +
+    theme(legend.position = "top")
+)
+# 
+```
+
+```{r set colours}
+# Group_colour = c("Ecosystem", "Mesopredator mesocosms", "No mesopredator mesocosms")
+# Colours_nm = c("#E69F00", "#0072B2","#CC0000")
+# Colours_Group = c("#E69F00", "#0072B2","#CC0000")
+# Colours_Boxplot = c("#0072B2","#CC0000")
+# 
+# names(Colours_nm) <- Group_colour
+# Colours_nm
+
+```
+
+```{r data import}
+AlgaeBloom_data <- read_csv(paste(FP1, DataIn, TidyData, sep = "/"))
+```
+
+```{r ungrouped log transform and standardization}
+
+SampleDate_LUNG <- expand_grid(
+  SampleDate = seq(ymd("2000-01-01"), ymd("2018-12-31"), by = "days"),
+  BType = c("AdBlEw", "DeSpBl", "InTrBl", "SuBl", "InDupB", "OuTrBl"))
+
+StationNameTime <- AlgaeBloom_data %>%
+  dplyr::select(CWCode, BType) %>%
+  filter(CWCode != "GS") %>%
+  dplyr::distinct() %>%
+  drop_na() %>%
+  full_join(SampleDate_LUNG)
+
+
+
+#https://stackoverflow.com/questions/15215457/standardize-data-columns-in-r
+
+AlgaeBloom_Norm <- AlgaeBloom_data %>% 
+  mutate(SampleDate = as.Date(datetime)) %>% #https://github.com/tidyverse/lubridate/issues/520
+  filter(Depth < 2) %>% #only samples from the direct surface, can be adjusted to include more water depths
+  full_join(StationNameTime) %>%
+  mutate(DIP_nM = orthoP*1000,
+         SampleYear = year(SampleDate)) %>%
+  mutate_if(is.numeric, list(~na_if(., Inf))) %>%
+  #tidyr::complete(SampleDate = seq.Date(min(SampleDate), max(SampleDate), by = "day")) %>%
+  group_by(CWCode, Depth, SampleYear) %>%
+  mutate(BETWEEN0 = as.numeric(difftime(SampleDate, lag(SampleDate, 1)), units="days") ,DayInBtw =  ifelse(is.na(BETWEEN0), 0, BETWEEN0), DayFrFrst = yday(datetime)) %>% #units = "days' important, otherwise I got sometimes the difftime in seconds or days
+dplyr::select(-BETWEEN0) %>%
+  dplyr::ungroup() %>% #very important to ungroup and filter ES-data to be consistent with the MC data. Otherwise, standardization is less valid for the observational period, and start points of experiments vs. ES will not align, allows to compare data across groups and not within groups
+  #dplyr::group_by(CWCode, SampleYear) %>% #standardize within Year and Station
+  dplyr::group_by(BType) %>% #standardize within respective bloom type
+  mutate_at(c("Chl", "DIN", "orthoP", "DIP_nM", "SIO4", "totalN", "totalP", "WTemp", "totalBiovol"), ~(log(.))) %>% #https://stats.stackexchange.com/questions/18844/when-and-why-should-you-take-the-log-of-a-distribution-of-numbers
+  mutate_if(is.numeric, list(~na_if(., -Inf))) %>%
+  mutate_at(c("Chl", "DIN", "orthoP", "DIP_nM", "SIO4", "totalN", "totalP", "WTemp", "totalBiovol"), ~(scale(.) %>% as.vector(.)))
+
+
+
+```
+
+
+```{r GAM all params}
+
+possibGAM = possibly(.f = gamm, otherwise = NULL)
+possibPRED = possibly(.f = predict, otherwise = NULL)
+
+E_days_pred <- expand_grid(
+  DayFrFrst = seq(from=min(1), 
+              to=max(365), 
+              length.out = 365)
+)
+
+AlgaeBloomNest <- AlgaeBloom_Norm %>%
+  dplyr::select(c(MstNr:HW_GEO, Chl, DIN, DIP_nM, totalN, totalP, WTemp, BType, BType_long, DayInBtw, DayFrFrst, SampleYear)) %>%
+  pivot_longer(cols = c(Chl:WTemp), names_to = "Param", values_to = "ParamValue") %>%
+  dplyr::filter(CWCode != "GS") %>%
+  group_by(BType, Param) %>%
+  nest()
+
+AlgaeBloomGAMM <- AlgaeBloomNest %>%
+  mutate(
+    GamModel = map(data, ~possibGAM(ParamValue ~ s(DayFrFrst, k = 12, bs = "cc"), random=list(
+                                                                                              SampleYear=~1, 
+                                                                                              CWCode=~1), data = .x, method = "REML")),
+    GAMM = map(GamModel, ~pluck(.x$gam)),
+    predicted = map(GAMM, ~possibPRED(.x, newdata = E_days_pred, type = 'response', se.fit=TRUE)),
+    augmented = map(GAMM, ~augment(.x)),
+    #GAMsummary = map(GAMM, ~summary(.x))
+    ) 
+
+AlgaeBloom_GamPred <- AlgaeBloomGAMM %>%
+  dplyr::select(-c(augmented, GAMM, GamModel, data)) %>%
+  dplyr::filter(predicted != "NULL") %>%
+  rowwise() %>%
+  mutate(db = list(cbind(predicted, E_days_pred))) %>%
+  dplyr::select(-predicted) %>%
+  unnest(col = db) %>%
+  dplyr::arrange(BType, Param) 
+
+BloomColor <- c("#FFCC33", "#FF0000", "#0000FF",  "#006600","#FF00CC", "#00FFFF")
+
+BType_names <- as_labeller(
+     c(`OuTrBl` = "Outer Triplet Bloom", `InDupB` = "Inner Duplex Bloom",`SuBl` = "Summer Bloom", 
+       `InTrBl` = "Inner Triplet Bloom",`AdBlEw` = "Advected Bloom", `DeSpBl` = "Delayed Spring Bloom"))
+
+legend_title <- "Bloom Type"
+
+BloomType_Plot <- AlgaeBloom_GamPred %>%
+  mutate(DayFrFrst = as.numeric(DayFrFrst),
+         low = fit-2*se.fit,
+         high = fit+2*se.fit) %>%
+  dplyr::filter(#BType == "SuBl"
+                Param == "Chl"
+                ) %>%
+  full_join(AlgaeBloom_Norm) %>%
+  dplyr::filter(CWCode != "GS") %>%
+  ggplot(aes(DayFrFrst, fit)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = low, ymax = high, color = BType, fill = BType), alpha = 0.3, linetype = 2, show.legend = F) +
+  geom_point(aes(x = DayFrFrst, y = Chl, colour = BType, group = BType), alpha = 0.05, show.legend = F) +
+  scale_fill_manual(legend_title, values = BloomColor, labels=c("Advected Bloom", "Delayed Spring Bloom", "Inner Duplex Bloom", "Outer Triplet Bloom", "Inner Triplet Bloom", "Summer Bloom")) +
+  scale_color_manual(legend_title, values = BloomColor, labels=c("Advected Bloom", "Delayed Spring Bloom", "Inner Duplex Bloom", "Outer Triplet Bloom", "Inner Triplet Bloom", "Summer Bloom")) +
+  #labs(fill = "Bloom Type") + 
+  xlab("Julian day") +
+  ylab(expression("standardized Chlorophyll")) +
+  coord_cartesian(ylim = c(-4.5, 4.5)) +
+  facet_wrap(~factor(BType, c("OuTrBl", "InDupB", "SuBl", "InTrBl", "AdBlEw", "DeSpBl")), nrow = 2, labeller = BType_names) + #https://community.rstudio.com/t/re-ordering-facet-wrap/141999/2
+  theme_bw() +
+  theme(axis.text=element_text(size=14), axis.title=element_text(size=16), strip.text.x = element_text(size = 14))
+BloomType_Plot
+
+ggsave(file = file.path(paste(FP1, PlotPath,sep = "/"),  paste(Project, "GAMM_BTypes", ".png", sep = "_"), fsep = .Platform$file.sep), plot = BloomType_Plot,  height = 12, width = 10)
+# AlgaeBloomExport <- AlgaeBloom_GamPred %>%
+#   pivot_wider(names_from = "Param", values_from = c("fit", "se.fit"),  names_sep = "_")
+# 
+# h5write(AlgaeBloomExport, "CWB_df_predict.h5", name = "GAMM")
+```
+
+``` {r test GAMM}
+GAMM_test <- AlgaeBloom_Norm %>%
+  dplyr::select(c(MstNr:HW_GEO, Chl, DIN, DIP_nM, totalN, totalP, WTemp, BType, BType_long, DayInBtw, DayFrFrst, SampleYear)) %>%
+  mutate(BType = as.factor(BType)) %>%
+  #pivot_longer(cols = c(Chl:WTemp), names_to = "Param", values_to = "ParamValue") %>%
+  dplyr::filter(CWCode != "GS")
+
+attach(GAMM_test)
+#source("C:\\Users\\mberthold\\Campbell Lab Dropbox\\Maximilian Berthold\\Manuscripts_Berthold\\Published\\SoBaCoSys_Ch18_NutrientRegimes\\supportroutines4.R")
+ID<-c("advected bloom", "delayed bloom", "inner duplex bloom", "inner triplet bloom", "outer triplet bloom", "summer bloom")
+IDFull<-rep(ID,each=100)
+
+Chl_M <-gamm(Chl~
+      s(SampleYear,  by = BType, bs="cr")+
+      s(DayFrFrst, by = BType, bs = "cc", k=12) + BType,
+      random=list(CWCode=~1))
+
+out8D_Chl<-mygamplot2(Chl_M$gam)
+
+
+OUTTrend_yChl<-out8D_Chl[out8D_Chl[,5]<=6,]
+library(lattice)
+timeYChl<-OUTTrend_yChl[,1]
+fitYChl<-OUTTrend_yChl[,2]
+ulYChl<-OUTTrend_yChl[,3]
+llYChl<-OUTTrend_yChl[,4]
+idYChl<-OUTTrend_yChl[,5]
+
+#tiff(filename = "C:\\Users\\mberthold\\Campbell Lab Dropbox\\Maximilian Berthold\\Manuscripts_Berthold\\In Prep\\AlgaeBlooming\\Plots\\YearlyChl_trends.tiff")
+xyplot(fitYChl~timeYChl|IDFull,type="l",index.cond=list(c(5, 3, 6, 4, 1, 2)), as.table = TRUE, col=1,xlab="Time (years)",
+       ylab="Chl Trends",
+  strip = function(bg='white', ...) strip.default(bg='white', ...),
+  panel = function(x, y,subscripts) {
+                panel.grid(h=-1, v= 2)
+                I<-order(x)
+                llines(x[I], y[I],col=1)
+                zup<-ulYChl[subscripts]
+                zlow<-llYChl[subscripts]
+                llines(x[I], zup[I],col=1,lty=2)
+                llines(x[I], zlow[I],col=1,lty=2)},
+  scales = list(alternating = T,
+                x = list(relation = "same"),
+                y = list(relation = "same")))
+dev.off()
+
+
+OUTTrend_MChl<-out8D_Chl[out8D_Chl[,5]>=7,]
+library(lattice)
+timeMChl<-OUTTrend_MChl[,1]
+fitMChl<-OUTTrend_MChl[,2]
+ulMChl<-OUTTrend_MChl[,3]
+llMChl<-OUTTrend_MChl[,4]
+idMChl<-OUTTrend_MChl[,5]
+
+#tiff(filename = "C:\\Users\\mberthold\\Campbell Lab Dropbox\\Maximilian Berthold\\Manuscripts_Berthold\\In Prep\\AlgaeBlooming\\Plots\\DailyChl_trends.tiff")
+xyplot(fitMChl~timeMChl|IDFull,type="l",index.cond=list(c(5, 3, 6, 4, 1, 2)), as.table = TRUE, col=1,xlab="Time (days)",
+       ylab="Chl Trends",
+  strip = function(bg='white', ...) strip.default(bg='white', ...),
+  panel = function(x, y,subscripts) {
+                panel.grid(h=-1, v= 2)
+                I<-order(x)
+                llines(x[I], y[I],col=1)
+                zup<-ulMChl[subscripts]
+                zlow<-llMChl[subscripts]
+                llines(x[I], zup[I],col=1,lty=2)
+                llines(x[I], zlow[I],col=1,lty=2)},
+  scales = list(alternating = T,
+                x = list(relation = "same"),
+                y = list(relation = "same")))
+dev.off()
+
+# rownames(out8D_Chl) <- seq(1:nrow(out8D_Chl))
+# MyFile<-"C:\\Users\\mberthold\\Campbell Lab Dropbox\\Maximilian Berthold\\Manuscripts_Berthold\\In Prep\\AlgaeBlooming\\ChlRESULTS.txt"
+# write.table(out8D_Chl,file=MyFile)
+
+ModelGAM <- AlgaeBloom_Norm %>%
+  dplyr::filter(CWCode != "GS") %>%
+  group_by(BType) %>%
+  nest()
+  mutate(
+    GamModel = map(data, ~possibGAM(ParamValue ~ s(DayFrFrst, k = 12, bs = "cc"), random=list(SampleYear=~1, CWCode=~1), data = .x, method = "REML")),
+    GAMM = map(GamModel, ~pluck(.x$gam))
+
+```
