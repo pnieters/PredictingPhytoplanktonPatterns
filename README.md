@@ -18,8 +18,10 @@ The raw data was supplied by the State Agency for Environment, Nature Conservati
 ```
 
 ## Quick Guide:
-We used matlab to preprocess data according to the procedure desribed in 
+We used matlab to preprocess data according to the procedure desribed in `PreparingTrainingData.md` (you can just read the .h5)
 
 R was used to fit the GAMM model to the data.
 
 Julia was used to setup the Universal Differential Equation and Artificial Neural Network as well as to use SInDy on the function the network learned.
+
+The julia implementation relies on additional code found in `src/`. The ensemble model on data from all years gets fit in `meanmodel.jl`, all results are analyzed, plotted, and SInDy is applied in `results_and_sindy.jl`
