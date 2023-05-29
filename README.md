@@ -12,7 +12,7 @@ Public Repository for the Paper "Predicting environmental drivers of phytoplankt
 The code is licensed under an MIT-License (c) 2023, Berthold, Nieters, Vortmeyer-Kley
 
 ## Data
-We supply z-scored data in .h5 format in Data/. The data was originally collected by a third party and are under a CC BY-NC-ND license.
+We supply z-scored data in .h5 format in TidyData/. The data was originally collected by a third party and are under a CC BY-NC-ND license.
 ```
 The raw data was supplied by the State Agency for Environment, Nature Conservation and Geology Mecklenburg-Vorpommern (LUNG-MV). The here presented data follows CC BY-NC-ND and the LUNG-MV needs to be credited as the creator.
 ```
