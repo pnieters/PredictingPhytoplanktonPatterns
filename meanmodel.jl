@@ -30,7 +30,7 @@ Statname = ["OuTrBlstatallMaxdata.h5",
   "AdBlEWstatallMaxdata.h5"]
 
 Startname = ["OuTrBlstartallMaxdata.h5",
-  "SuBlstartallallMaxdata.h5",
+  "SuBlstartallMaxdata.h5",
   "InTrBlstartallMaxdata.h5",
   "InDuBlstartallMaxdata.h5",
   "DeSpBlstartallMaxdata.h5",
@@ -234,7 +234,7 @@ Threads.@threads for id in eachindex(all_runs)
   rpt_counter = 0
   while ~ret_code
     rpt_counter += 1
-    println("Rerunning exoeriment for $(Statname[station_id]) on run $(run_id). Rerun Nr. $(rpt_counter)")
+    println("Rerunning experiment for $(Statname[station_id]) on run $(run_id). Rerun Nr. $(rpt_counter)")
     res, callback, time, ret_code = run_experiment(station_id, run_id;
       include_temperature=use_temp,
       include_salinity=use_sal,
@@ -255,4 +255,6 @@ for (station_id, run_id) in keys(all_results)
     all_results[(station_id, run_id)][1].minimizer)
 
 end
+
+
 
