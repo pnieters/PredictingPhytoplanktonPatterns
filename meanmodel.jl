@@ -218,18 +218,3 @@ for (station_id, run_id) in keys(all_results)
 end
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
