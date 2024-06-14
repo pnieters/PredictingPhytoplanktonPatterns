@@ -91,7 +91,7 @@ for idx = 1:6 # loop blooming tpyes
   SolW = []
   for idxrun = 1:25   # loop training runs
 
-    datapath = "DataAllStatDriver\\" * Oname[idx] * "\\" * DFname[idx] * string(idxrun) * ".h5"
+    datapath = "DataAllStatDriver/" * Oname[idx] * "/" * DFname[idx] * string(idxrun) * ".h5"
     # read solution
     H = h5open(datapath, "r") do file
       read(file, "Sol")
@@ -107,7 +107,7 @@ for idx = 1:6 # loop blooming tpyes
 
   # read time (same for all training runs)
   idxrun = 1
-  datapath = "DataAllStatDriver\\" * Oname[idx] * "\\" * DFname[idx] * string(idxrun) * ".h5"
+  datapath = "DataAllStatDriver/" * Oname[idx] * "/" * DFname[idx] * string(idxrun) * ".h5"
   Tt = h5open(datapath, "r") do file
     read(file, "time")
   end
@@ -343,11 +343,11 @@ for idx = 1:6 # loop blooming tpyes
   ylabel!(fig6, "totalP")
 
   K = plot(fig2, fig3, fig4, fig5, fig6, layout=(2, 3), size=(1000, 1000))
-  savefig(K, "DataAllStatDriver\\" * FFname[idx])
+  savefig(K, "DataAllStatDriver/" * FFname[idx])
 
   ###############################
   ## save mean model ############
-  datapath = "DataAllStatDriver\\MeanM" * DFname[idx] * ".h5"
+  datapath = "DataAllStatDriver/MeanM" * DFname[idx] * ".h5"
   h5open(datapath, "w") do file
     write(file, "mChl", mChl)
     write(file, "time", Tt)
@@ -394,7 +394,7 @@ for idx = 1:6 # loop blooming tpyes
   plot(plot(ddprob), plot(ddsol), layout=(1, 2))
 
   #print solution to txt file
-  open("DataAllStatDriver\\" * TXTname[idx], "w") do f
+  open("DataAllStatDriver/" * TXTname[idx], "w") do f
     println(f, ddsol)                           # info on solution
     println(f, Sindyeqs)                         # eqs-basis
     println(f, Sindyparams)                      # parameters
@@ -404,7 +404,7 @@ for idx = 1:6 # loop blooming tpyes
   end
 
   # write solution and coefficient matrix to .h5 file
-  datapath = "DataAllStatDriver\\Sindy" * DFname[idx] * ".h5"
+  datapath = "DataAllStatDriver/Sindy" * DFname[idx] * ".h5"
   h5open(datapath, "w") do file
     write(file, "dSindygGuess", dSindyGuess)    # Sindy derivativ guess
     write(file, "dSindySol", dSindySol)         # ANN derivative guess
@@ -460,6 +460,6 @@ for idx = 1:6 # loop blooming tpyes
   ylabel!(fig6, "totalP")
 
   K = plot(fig2, fig3, fig4, fig5, fig6, layout=(2, 3), size=(1000, 1000))
-  savefig(K, "DataAllStatDriver\\" * SFname[idx])
+  savefig(K, "DataAllStatDriver/" * SFname[idx])
 
 end

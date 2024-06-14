@@ -94,12 +94,12 @@ end
 
 % SAVE DATA TO H5
 % order of ploynoms within matrixes rows: {'OuTrBldriver.h5', 'SuBldriver.h5', 'InTrBldriver.h5', 'InDuBldriver.h5', 'DeSpBldriver.h5', 'AdBlEWdriver.h5'};
-    % poly 4 for Sal
-    h5create('DriverFkt.h5','/PS',[size(PS,1) size(PS,2)])
-    h5write('DriverFkt.h5','/PS',PS)
-    % poly 5 for Temp
-    h5create('DriverFkt.h5','/PT',[size(PT,1) size(PT,2)])
-    h5write('DriverFkt.h5','/PT',PT)
-    % poly 4 for Kd
-    h5create('DriverFkt.h5','/PKd',[size(PKd,1) size(PKd,2)])
-    h5write('DriverFkt.h5','/PKd',PKd)
+% poly 4 for Sal
+h5create('DriverFkt.h5','/PS',[size(PS,1) size(PS,2)])
+h5write('DriverFkt.h5','/PS',PS)
+% poly 5 for Temp
+h5create('DriverFkt.h5','/PT',[size(PT,1) size(PT,2)])
+h5write('DriverFkt.h5','/PT',PT)
+% poly 4 for Kd
+h5create('DriverFkt.h5','/PKd',[size(PKd,1) size(PKd,2)])
+h5write('DriverFkt.h5','/PKd',PKd)
